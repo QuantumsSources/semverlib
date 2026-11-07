@@ -6,7 +6,7 @@ See the SemanticVersion class for more information.
 import re
 from typing import overload, TypeAlias
 
-__version__ = "1.0.0"
+__version__ = "1.0.1"
 __all__ = ["SemanticVersion", "InvalidSemVerString", "comp", "latest"]
 
 
@@ -17,7 +17,7 @@ class InvalidSemVerString(Exception):
 
     :param src: The offending string
     :param reason: The reason the source string is not compliant with the targeted Semantic Versioning spec.
-    :param spec_header: The part of the SemVer spec that explains why the source string is not compliant, e.g., https://semver.org/#spec-item-2.
+    :param spec_header: URL linking the section of the SemVer spec that explains why the version string is not compliant.
     """
 
     def __init__(self, src: str, reason: str, spec_header: str):
@@ -54,9 +54,6 @@ class SemanticVersion:
     This is to, for example, allow tags like architecture notation, e.g.,
     "x86_64" or "arm64_v8a", to pass as valid, instead of raising an
     InvalidSemVerString error.
-
-    :param src: The source string, e.g., "1.4.5-rc.1+x86_64"
-    :raises InvalidSemVerString:
     """
 
     @overload
