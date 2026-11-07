@@ -4,8 +4,7 @@ See the SemanticVersion class for more information.
 """
 
 import re
-from typing import overload
-
+from typing import overload, TypeAlias
 
 __version__ = "1.0.0"
 __all__ = ["SemanticVersion", "InvalidSemVerString", "comp", "latest"]
@@ -237,7 +236,15 @@ class SemanticVersion:
         return f"SemanticVersion(src=\"{self.fullname}\")"
 
 
-def comp(a: SemanticVersion, b: SemanticVersion) -> SemanticVersion | None:
+AcceptableSemVer: TypeAlias = SemanticVersion | str
+
+
+def comp(a: AcceptableSemVer, b: AcceptableSemVer) -> SemanticVersion | None:
+    if isinstance(a, str):
+        a = SemanticVersion(a)
+    if isinstance(b, str):
+        b = SemanticVersion(b)
+
     if a.major < b.major: return b
     if a.major > b.major: return a
 
@@ -285,8 +292,8 @@ def comp(a: SemanticVersion, b: SemanticVersion) -> SemanticVersion | None:
     return None
 
 
-def latest(*v: SemanticVersion) -> list[SemanticVersion]:
-    v = sorted(v, reverse=True)
+def latest(*v: AcceptableSemVer) -> list[SemanticVersion]:
+    v = sorted(map(SemanticVersion, v), reverse=True)
     r = [ ]
 
     for ver in v:
@@ -302,16 +309,49 @@ if __name__ == "__main__":
     import sys
 
     if sys.argv[1:]:
-        try:
-            print(SemanticVersion(sys.argv[1]))
+        if sys.argv[1] in ("-h", "--help"):
+            print("[INFO] semverlib cli")
+            print("[INFO] usage: python .../semverlib.py (-h|--help)|(<VERSION> [-c|--check] [--json])")
+            print("[INFO] ")
+            print("[INFO] -h / --help: print this help and exit")
+            print("[INFO] --check: don't print error message")
+            print("[INFO] --json: print result as json instead of core version")
+            print("[INFO] ")
+            print("[INFO] <VERSION>: the version to check")
             sys.exit(0)
-        except InvalidSemVerString as e:
-            print(f"[WARN] \"{e.source}\" is not compliant with the Semantic Versioning specification:")
-            print(f"[WARN] > {e.reason}")
-            print(f"[WARN] See {e.header} for more info.")
+
+        try:
+            if sys.argv[1] == "--check":
+                print("[WARN] --check must follow version, not precede it")
+                sys.exit(1)
+
+            _a = SemanticVersion(sys.argv[1])
+            if "--json" in sys.argv:
+                print("{")
+                print(f'  "full_version": "{_a.fullname}",')
+                print(f'  "core_version": "{_a.core_version}",')
+                print("  ")
+                print(f'  "major": {_a.major},')
+                print(f'  "minor": {_a.minor},')
+                print(f'  "patch": {_a.patch},')
+                print("  ")
+                print(f'  "prerelease": {f"\"{_a.prerelease}\"" if _a.is_prerelease else "null"},')
+                print(f'  "build_metadata": {f"\"{_a.build_metadata}\"" if _a.has_build_metadata else "null"}')
+                print("}")
+                sys.exit(0)
+
+            print(_a)
+            sys.exit(0)
+        except InvalidSemVerString as _e:
+            if not "--check" in sys.argv:
+                print(f"[WARN] \"{_e.source}\" is not compliant with the Semantic Versioning specification:")
+                print(f"[WARN] > {_e.reason}")
+                print(f"[WARN] ")
+                print(f"[WARN] See {_e.header} for more info.")
             sys.exit(1)
 
-    print(f"semverlib, version {__version__}, loaded. made with ♥︎ by quantum!")
+    print(f"semverlib, version {__version__}, loaded.")
+    print("made with ♥︎ by quantum!")
     print()
     print("semverlib is freely available on github, under the MIT license")
     print("for issues: https://github.com/QuantumsSources/semverlib")
