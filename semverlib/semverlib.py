@@ -6,8 +6,8 @@ See the SemanticVersion class for more information.
 import re
 from typing import overload, TypeAlias
 
-__version__ = "1.0.1"
-__all__ = ["SemanticVersion", "InvalidSemVerString", "comp", "latest"]
+__version__ = "1.0.2"
+__all__ = ["SemanticVersion", "InvalidSemVerString", "comp", "latest", "version"]
 
 
 class InvalidSemVerString(Exception):
@@ -60,7 +60,7 @@ class SemanticVersion:
     def __init__(self, src: str): ...
 
     @overload
-    def __init__(self, other: SemanticVersion): ...
+    def __init__(self, other: "SemanticVersion"): ...
 
     @overload
     def __init__(self, major: int, minor: int = 0, patch: int = 0,
@@ -191,15 +191,15 @@ class SemanticVersion:
             f"{f'+{self.build_metadata}' if self.has_build_metadata else ''}"
         )
 
-    def GetNextMajor(self, keep_metadata: bool = False) -> SemanticVersion:
+    def GetNextMajor(self, keep_metadata: bool = False) -> "SemanticVersion":
         meta = self.build_metadata if keep_metadata else None
         return SemanticVersion(self.major + 1, 0, 0, build_metadata=meta)
 
-    def GetNextMinor(self, keep_metadata: bool = False) -> SemanticVersion:
+    def GetNextMinor(self, keep_metadata: bool = False) -> "SemanticVersion":
         meta = self.build_metadata if keep_metadata else None
         return SemanticVersion(self.major, self.minor + 1, 0, build_metadata=meta)
 
-    def GetNextPatch(self, keep_metadata: bool = False) -> SemanticVersion:
+    def GetNextPatch(self, keep_metadata: bool = False) -> "SemanticVersion":
         meta = self.build_metadata if keep_metadata else None
         return SemanticVersion(self.major, self.minor, self.patch + 1, build_metadata=meta)
 
