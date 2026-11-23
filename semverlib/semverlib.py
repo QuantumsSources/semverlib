@@ -6,7 +6,7 @@ See the SemanticVersion class for more information.
 import re
 from typing import overload, TypeAlias
 
-__version__ = "2.0.0"
+__version__ = "2.1.0"
 __all__ = ["SemanticVersion", "InvalidSemVerString", "comp", "latest", "version"]
 
 
@@ -24,7 +24,7 @@ class InvalidSemVerString(Exception):
         self.source = src
         self.reason = reason
         self.header = spec_header
-        super().__init__(self)
+        super().__init__(src, reason, spec_header)
 
     def __str__(self) -> str:
         return (f"\"{self.source}\" is not compliant with the Semantic Versioning specification: "
@@ -63,13 +63,13 @@ class SemanticVersion:
     def __init__(self, other: "SemanticVersion"): ...
 
     @overload
-    def __init__(self, major: int, minor: int = 0, patch: int = 0,
+    def __init__(self, major: int = 0, minor: int = 0, patch: int = 0,
                  *, prerelease: str | None = None, build_metadata: str | None = None): ...
 
     def __init__(self, *args, **kwargs):
-        if isinstance(args[0], str):
+        if args and isinstance(args[0], str):
             src = args[0]
-        elif isinstance(args[0], SemanticVersion):
+        elif args and isinstance(args[0], SemanticVersion):
             other: SemanticVersion = args[0]
 
             major = other.major
@@ -97,15 +97,18 @@ class SemanticVersion:
         def match_len(m: re.Match) -> int:
             return m.end() - m.start()
 
-        is_valid_semver_re = re.compile(r"^([0-9]+)[.]([0-9]+)[.]([0-9]+)")
+        is_valid_semver_re = re.compile(r"^(0|[1-9][0-9]*)[.](0|[1-9][0-9]*)[.](0|[1-9][0-9]*)")
         is_valid_semver = is_valid_semver_re.match(src)
 
         if not is_valid_semver:
             raise InvalidSemVerString(src,
-                f"\"{src}\" does not follow core Semantic Versioning formatting.",
+                "Core version must be MAJOR.MINOR.PATCH, using non-negative integers without leading zeros.",
                 "https://semver.org/#spec-item-2"
             )
         self._major, self._minor, self._patch = map(int, is_valid_semver.groups())
+
+        if (self._major, self._minor, self._patch) == (0, 0, 0):
+            self._minor = 1
 
         is_prerelease_re = re.compile(r"-[a-zA-Z0-9._-]*")
         has_metadata_re = re.compile(r"\+[a-zA-Z0-9._-]*")
@@ -118,15 +121,18 @@ class SemanticVersion:
             )
         self._prerelease = is_prerelease.group()[1:] if is_prerelease else None
 
-        meta_start = max(is_valid_semver.end(), is_prerelease.end() if is_prerelease else 0)
-        has_metadata = has_metadata_re.match(src, meta_start)
-        if has_metadata and match_len(has_metadata) <= 1:
-            raise InvalidSemVerString(
-                src,
-                "Build Metadata must not be empty.",
-                "https://semver.org/#spec-item-10"
-            )
-        self._build_metadata = has_metadata.group()[1:] if has_metadata else None
+        if self._prerelease is not None:
+            for id in self._prerelease.split("."):
+                if id == "":
+                    raise InvalidSemVerString(src,
+                        "Prerelease identifiers must not be empty.",
+                        "https://semver.org/#spec-item-9"
+                    )
+                if id.isdigit() and len(id) > 1 and id[0] == "0":
+                    raise InvalidSemVerString(src,
+                        "Numeric prerelease identifiers must not include leading zeroes.",
+                        "https://semver.org/#spec-item-9"
+                    )
 
         meta_start = max(is_valid_semver.end(), is_prerelease.end() if is_prerelease else 0)
         has_metadata = has_metadata_re.match(src, meta_start)
@@ -137,6 +143,13 @@ class SemanticVersion:
                 "https://semver.org/#spec-item-10"
             )
         self._build_metadata = has_metadata.group()[1:] if has_metadata else None
+
+        if self._build_metadata is not None and "" in self._build_metadata.split("."):
+            raise InvalidSemVerString(
+                src,
+                "Build Metadata identifiers must not be empty.",
+                "https://semver.org/#spec-item-10"
+            )
 
         consumed_end = max(
             is_valid_semver.end(),
@@ -206,6 +219,9 @@ class SemanticVersion:
     def __eq__(self, value: object, /) -> bool:
         if not isinstance(value, SemanticVersion): return NotImplemented
         return comp(self, value) == None
+
+    def __hash__(self) -> int:
+        return hash((self._major, self._minor, self._patch, self._prerelease))
 
     def __gt__(self, other) -> bool:
         if not isinstance(other, SemanticVersion): return NotImplemented

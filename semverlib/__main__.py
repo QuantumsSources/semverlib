@@ -1,107 +1,404 @@
+import sys
+import json
+
 from semverlib import *
 
 
+def info(*m: object):
+    sys.stdout.write(" ".join(str(v) for v in ["[INFO]:", *m]) + "\n")
+
+def warn(*m: object):
+    sys.stdout.write(" ".join(str(v) for v in ["[WARN]:", *m]) + "\n")
+
+class ArgumentParserError(Exception):
+    pass
+
+def parse_args(args: list[str]) -> tuple[dict[str, bool], dict[str, str|int|float|bool|None], list[str]]:
+    mods: dict[str, bool] = {}
+    kwargs: dict[str, str|int|float|bool|None] = {}
+    versions: list[str] = []
+
+    for arg in args:
+        if arg.startswith("--"):
+            kwarg = arg.removeprefix("--")
+            name = kwarg.rsplit("=", 1)[0]
+
+            if not name:
+                raise ArgumentParserError("Found unnamed kwarg.")
+
+            if "=" in kwarg:
+                k, raw_v = kwarg.rsplit("=", 1)
+                if not raw_v.strip():
+                    raise ArgumentParserError(f"Found kwarg '{k}' with no value.")
+
+                v = raw_v.lower()
+
+                if v in ("true", "false"):
+                    parsed_val: str|int|float|bool|None = v == "true"
+                elif v in ("none", "nil", "null"):
+                    parsed_val = None
+                else:
+                    try:
+                        parsed_val = int(raw_v, 0)
+                    except ValueError:
+                        try:
+                            parsed_val = float(raw_v)
+                        except ValueError:
+                            parsed_val = raw_v
+
+                kwargs[k] = parsed_val
+            else:
+                if name in kwargs:
+                    warn(f"Found duplicate kwarg '{name}'! Overriding previous entry.")
+                kwargs[name] = True
+        elif arg.startswith("-"):
+            if not arg.removeprefix("-"):
+                raise ArgumentParserError("Found mod character with no mods.")
+
+            for mod in arg.removeprefix("-"):
+                if mod in mods:
+                    warn(f"Found duplicate mod '{mod}'! Overriding previous entry.")
+                mods[mod] = True
+        else:
+            versions.append(arg)
+
+    return mods, kwargs, versions
+
+
+ALIASES = {
+    "h": "help",
+    "H": "help",
+
+    "S": "check",
+    "C": "compare",
+    "D": "decompose",
+
+    "j": "json",
+    "q": "quiet",
+}
+
+HELP = {
+    ("mode", "help"): [
+        "-H (--help)",
+        "print help text",
+        "",
+        "FLAGS:",
+        " --mode=<str> :: print help for a mode, or filter to this mode",
+        " --flag=<str> :: print help for a flag",
+        " * does not accept global flags!",
+        "",
+        "usage: --help [<flags>]"
+    ],
+    ("mode", "check"): [
+        "-S (--check)",
+        "print help text",
+        "",
+        "FLAGS:",
+        " no specific flags",
+        " + global flags",
+        "",
+        "usage: --check <V1> [<V...>] [<flags>]"
+    ],
+    ("mode", "compare"): [
+        "-C (--compare)",
+        "compare two versions, or get the latest",
+        "",
+        "FLAGS:",
+        " --prefer=<str> :: settle ties with a preferred build meta",
+        " + global flags",
+        "",
+        "usage: --compare <V1> <V2> [<V...>] [<flags>]"
+    ],
+    ("mode", "decompose"): [
+        "-D (--decompose)",
+        "split version into individual components",
+        "",
+        "FLAGS:",
+        " no specific flags",
+        " + global flags",
+        "",
+        "usage: --decompose <V1> [<flags>]"
+    ],
+
+    ("flag", "help", "mode"): [
+        "--mode=<str>",
+        "print help for a mode, or filter to flags to this mode",
+        "",
+        "example: -H --mode=D"
+    ],
+    ("flag", "help", "flag"): [
+        "--flag=<str>",
+        "print help for a flag, optionally filtered by mode",
+        "",
+        "example: --help --mode=help --flag=mode"
+    ],
+    ("flag", "compare", "prefer"): [
+        "--prefer=<str>",
+        "settle ties with a preferred build meta",
+        "",
+        "example: -C 3.1.4+x86_64 3.1.4+arm64_v8a --prefer=x86_64"
+    ],
+
+    ("flag", "global", "json"): [
+        "-j (--json) [GLOBAL]",
+        "print output as json",
+        "",
+        "example: -S 1.0.0 --json"
+    ],
+    ("flag", "global", "quiet"): [
+        "-q (--quiet) [GLOBAL]",
+        "don't print errors, and reduce to crucial information, relies on return codes",
+        "",
+        "example: -S 2.9.b --quiet"
+    ]
+}
+
 if __name__ == "__main__":
-    import sys
+    mods, kwargs, versions = parse_args(sys.argv[1:])
+    for mod in mods:
+        if ALIASES[mod]:
+            kwargs[ALIASES[mod]] = True
 
-    if sys.argv[1:]:
-        if sys.argv[1] in ("-h", "--help"):
-            print("[INFO] semverlib cli")
-            print("[INFO] usage: python [.../]semverlib [...]")
-            print("[INFO] ")
-            print("[INFO] -h / --help: print this help and exit")
-            print("[INFO]   usage: python [.../]semverlib -h|--help")
-            print("[INFO] -s / --check: don't print error message")
-            print("[INFO]     --json: print result as json instead of <core_version>[-<prerelease>]")
-            print("[INFO]   usage: python [.../]semverlib <VERSION> (-s|--check) [--json]")
-            print("[INFO] -c / --comp: compare two semantic versions")
-            print("[INFO]     --strict=<preferred_build_meta>: settle ties with a preferred build meta")
-            print("[INFO]     --json: print result as json instead of an inequality")
-            print("[INFO]   usage: python [.../]semverlib (-c|--comp) <VERSION> <VERSION> [--json]")
-            print("[INFO] ")
-            print("[INFO] <VERSION>: a valid semantic version")
+    json_mode = kwargs.get("json", None)
+    quiet_mode = kwargs.get("quiet", None)
+
+    if kwargs.get("help", None):
+        if kwargs.get("flag", None) is not None:
+            t_mode = str(kwargs.get("mode")) if kwargs.get("mode") is not None else "global"
+            if ALIASES.get(t_mode, None): t_mode = ALIASES[t_mode]
+
+            t_flag = str(kwargs.get("flag"))
+            if ALIASES.get(t_flag, None): t_flag = ALIASES[t_flag]
+
+            if HELP.get(("flag", t_mode, t_flag), None) is None:
+                warn(f"flag {t_flag} not found!")
+                sys.exit(1)
+
+            for line in HELP[("flag", t_mode, t_flag)]:
+                if not line.strip():
+                    print()
+                    continue
+                info(line)
+
+            sys.exit(0)
+        elif kwargs.get("mode", None) is not None:
+            t_mode = str(kwargs.get("mode"))
+            if ALIASES.get(t_mode, None): t_mode = ALIASES[t_mode]
+
+            if HELP.get(("mode", t_mode), None) is None:
+                warn(f"mode {t_mode} not found!")
+                sys.exit(1)
+
+            for line in HELP[("mode", t_mode)]:
+                if not line.strip():
+                    print()
+                    continue
+                info(line)
+
             sys.exit(0)
 
-        check_only = "-s" in sys.argv or "--check" in sys.argv
-        if sys.argv[1] in ("-c", "--comp"):
-            if len(sys.argv[1:]) < 3:
-                print(f"[ERROR] -s expects two valid semantic versions after it, {len(sys.argv[1:])} found")
-                sys.exit(1)
-
-            try:
-                _a = SemanticVersion(sys.argv[2])
-                _b = SemanticVersion(sys.argv[3])
-
-                if len(sys.argv) > 4 and sys.argv[4].startswith("--strict"):
-                    if not "=" in sys.argv[4]:
-                        print("[WARN] --strict expects a <preferred_build_meta> argument. none found.")
-                        sys.exit(1)
-                    _, preferred_build_meta = sys.argv[4].split("=", 1)
-                else:
-                    preferred_build_meta = None
-
-                _m = comp(_a, _b, preferred_build_meta)
-                if "--json" in sys.argv:
-                    print("{")
-                    print('    "candidates": {')
-                    print(f'        "a": {repr(_a)}')
-                    print(f'        "b": {repr(_b)}')
-                    print('    },')
-                    print(f'    "result": {repr(_m)}')
-                    print("}")
-                    sys.exit(0)
-
-                _a_str = _a.fullname if preferred_build_meta is not None else str(_a)
-                _b_str = _b.fullname if preferred_build_meta is not None else str(_b)
-
-                if _m is None:
-                    print(f"{_a_str} == {_b_str}")
-                elif _a == _m:
-                    print(f"{_a_str} > {_b_str}")
-                else:
-                    print(f"{_b_str} > {_a_str}")
-
-                sys.exit(0)
-            except InvalidSemVerString as _e:
-                if not check_only:
-                    print(f"[WARN] \"{_e.source}\" is not compliant with the Semantic Versioning specification:")
-                    print(f"[WARN] > {_e.reason}")
-                    print(f"[WARN] ")
-                    print(f"[WARN] See {_e.header} for more info.")
-                sys.exit(1)
-        try:
-            if sys.argv[1] in ("-s", "--check"):
-                print("[ERROR] -s must follow version, not precede it")
-                sys.exit(1)
-
-            _a = SemanticVersion(sys.argv[1])
-            if "--json" in sys.argv:
-                print("{")
-                print(f'  "full_version": "{_a.fullname}",')
-                print(f'  "core_version": "{_a.core_version}",')
-                print("  ")
-                print(f'  "major": {_a.major},')
-                print(f'  "minor": {_a.minor},')
-                print(f'  "patch": {_a.patch},')
-                print("  ")
-                print(f'  "prerelease": {f"\"{_a.prerelease}\"" if _a.is_prerelease else "null"},')
-                print(f'  "build_metadata": {f"\"{_a.build_metadata}\"" if _a.has_build_metadata else "null"}')
-                print("}")
-                sys.exit(0)
-
-            print(_a)
-            sys.exit(0)
-        except InvalidSemVerString as _e:
-            if not check_only:
-                print(f"[WARN] \"{_e.source}\" is not compliant with the Semantic Versioning specification:")
-                print(f"[WARN] > {_e.reason}")
-                print(f"[WARN] ")
-                print(f"[WARN] See {_e.header} for more info.")
+        info("semverlib cli, made with ♥︎ by quantum")
+        info("usage: python semverlib [[(-Syu...)|(--MODE)] <V...> [<--flags>]]")
+        print()
+        info("MODES:")
+        info(" -H (--help) [default] :: print help text")
+        info(" -S (--check)          :: check whether every version is valid")
+        info(" -C (--compare)        :: compare two versions, or get the latest")
+        info(" -D (--decompose)      :: split version into individual components")
+        print()
+        info("FLAGS (global, use -H --mode=... and/or --flag=... for specifics):")
+        info(" -j (--json)  :: print output as json")
+        info(" -q (--quiet) :: don't print errors, relies on return codes")
+        print()
+        info("semverlib is freely available on github, under the MIT license")
+        info("for issues: https://github.com/QuantumsSources/semverlib")
+        sys.exit(0)
+    elif kwargs.get("check", None):
+        if not versions:
+            if not quiet_mode:
+                warn("--check requires at least one (1) version input")
             sys.exit(1)
 
-    print(f"semverlib, version {version}, loaded.")
-    print("made with ♥︎ by quantum!")
-    print()
-    print("semverlib is freely available on github, under the MIT license")
-    print("for issues: https://github.com/QuantumsSources/semverlib")
-    sys.exit(0)
+        valid: list[SemanticVersion] = []
+        invalid: list[InvalidSemVerString] = []
+
+        for ver in versions:
+            try:
+                valid.append(SemanticVersion(ver))
+            except InvalidSemVerString as err:
+                invalid.append(err)
+
+        if json_mode:
+            result = []
+            for ver in valid:
+                result.append({
+                    "valid": True,
+                    "source": ver.fullname,
+                })
+            for ver in invalid:
+                result.append({
+                    "valid": False,
+                    "source": ver.source,
+                    "reason": ver.reason,
+                })
+
+            print(json.dumps(result, indent=2))
+            sys.exit(0)
+
+        if not quiet_mode:
+            info(f"{len(valid)}/{len(versions)} versions are valid:")
+            for semver in valid:
+                info(f"> {semver.fullname}")
+
+        if len(invalid) > 0:
+            if not quiet_mode:
+                print()
+                for err in invalid:
+                    warn(f"{err.source} is invalid because: {err.reason}")
+            sys.exit(1)
+        sys.exit(0)
+    elif kwargs.get("compare", None):
+        if len(versions) < 2:
+            if not quiet_mode:
+                warn("--compare requires at least two (2) version inputs")
+            sys.exit(1)
+
+        candidates: list[SemanticVersion] = []
+        try:
+            for ver in versions:
+                candidates.append(SemanticVersion(ver))
+        except InvalidSemVerString as err:
+            if not quiet_mode:
+                warn(err)
+            sys.exit(1)
+
+        if len(candidates) == 2:
+            a, b = candidates
+            m = comp(a, b, str(kwargs.get("prefer")) if kwargs.get("prefer", None) else None)
+
+            if json_mode:
+                print(json.dumps({
+                    "candidates": [v.fullname for v in candidates],
+                    "prefer": kwargs.get("prefer", None),
+
+                    "latest": m.fullname if m else None
+                }, indent=2))
+                sys.exit(0)
+
+            if m is None:
+                info(f"{a.fullname} == {b.fullname}")
+            if m == a:
+                info(f"{a.fullname} > {b.fullname}")
+            if m == b:
+                info(f"{b.fullname} > {a.fullname}")
+            sys.exit(0)
+        else:
+            if json_mode:
+                print(json.dumps({
+                    "candidates": [v.fullname for v in candidates],
+                    "latest": str(candidates[0])
+                }, indent=2))
+                sys.exit(0)
+
+            for i, ver in enumerate(candidates):
+                if i == 0: info(f"latest: {ver.fullname}")
+                elif not quiet_mode: info(f"no. {i+1}: {ver.fullname}")
+            sys.exit(0)
+    elif kwargs.get("decompose", None):
+        if not versions:
+            if not quiet_mode:
+                warn("--decompose requires at least one (1) version input")
+            sys.exit(1)
+
+        try:
+            versions = [SemanticVersion(v) for v in versions]
+        except InvalidSemVerString as err:
+            if not quiet_mode:
+                warn(err.reason)
+            sys.exit(1)
+
+        if len(versions) == 1:
+            v = versions[0]
+
+            if json_mode:
+                print(json.dumps({
+                    "source": v.fullname,
+                    "core": v.core_version,
+
+                    "major": v.major,
+                    "minor": v.minor,
+                    "patch": v.patch,
+
+                    "prerelease": v.prerelease,
+                    "build_meta": v.build_metadata
+                }, indent=2))
+                sys.exit(0)
+
+            info(f"{v.fullname}:")
+            info(f"- major: {v.major}")
+            info(f"- minor: {v.minor}")
+            info(f"- patch: {v.patch}")
+            if v.is_prerelease:
+                info(f"- prerelease tag: {v.prerelease}")
+            if v.has_build_metadata:
+                info(f"- build metadata: {v.build_metadata}")
+        else:
+            result = []
+
+            for i, v in enumerate(versions):
+                result.append({
+                    "source": v.fullname,
+                    "core": v.core_version,
+
+                    "major": v.major,
+                    "minor": v.minor,
+                    "patch": v.patch,
+
+                    "prerelease": v.prerelease,
+                    "build_meta": v.build_metadata
+                })
+
+                if not json_mode:
+                    info(f"{v.fullname}:")
+                    info(f"- major: {v.major}")
+                    info(f"- minor: {v.minor}")
+                    info(f"- patch: {v.patch}")
+                    if v.is_prerelease:
+                        info(f"- prerelease tag: {v.prerelease}")
+                    if v.has_build_metadata:
+                        info(f"- build metadata: {v.build_metadata}")
+                    if i != len(versions) - 1: info(" ----------- ")
+
+            if json_mode:
+                print(json.dumps(result, indent=2))
+    elif versions:
+            try:
+                v = SemanticVersion(versions[0])
+            except InvalidSemVerString as err:
+                if not quiet_mode:
+                    warn(err.reason)
+                sys.exit(1)
+
+            if json_mode:
+                print(json.dumps({
+                    "source": v.fullname,
+                    "core": v.core_version,
+
+                    "major": v.major,
+                    "minor": v.minor,
+                    "patch": v.patch,
+
+                    "prerelease": v.prerelease,
+                    "build_meta": v.build_metadata
+                }, indent=2))
+                sys.exit(0)
+
+            print(v)
+            sys.exit(0)
+    else:
+        info(f"semverlib, ver. {version}, loaded!")
+        info("made with ︎︎︎︎♥ by quantum!")
+        print()
+        info("semverlib is freely available on github, under the MIT license")
+        info("for issues: https://github.com/QuantumsSources/semverlib")
+        sys.exit(0)
