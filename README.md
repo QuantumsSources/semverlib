@@ -38,11 +38,18 @@ a = SemanticVersion("1.0.0-alpha")
 print(a.major)      # 1
 print(a.prerelease) # "alpha"
 
-# For parameters:
+# From separate parameters:
 b = SemanticVersion(1, 1, 5, build_metadata="x86_64")
 print(b.patch)          # 5
 print(b.prerelease)     # None
 print(b.build_metadata) # "x86_64"
+
+# From another SemanticVersion object:
+c = SemanticVersion(b.GetNextMinor(keep_metadata=True))
+print(c.major)          # 1
+print(c.minor)          # 2
+print(c.patch)          # 0, resets on minor change
+print(c.build_metadata) # "x86_64", kept by keep_metadata.
 ```
 
 ### 2. Simple comparison
@@ -76,6 +83,29 @@ b = SemanticVersion("1.0.0-beta+armeabi_v7a") # Android 32-bit
 print(a == b) # True, build metadata doesn't factor into precedence
 ```
 
+### 5. Build metadata preference
+> [!note]
+> Exceptionally, `semverlib` allows you to "prefer" build metadata when comparing
+> `SemanticVersion` objects with the built-in (to `semverlib`) `comp` function.
+```python
+from semverlib import SemanticVersion, comp
+
+# Same version, 3.1.4-rc.2, different targets:
+v1 = SemanticVersion("3.1.4-rc.2+arm64_v8a")   # Android 64-bit
+v2 = SemanticVersion("3.1.4-rc.2+armeabi_v7a") # Android 32-bit
+
+print(v1 == v2)     # True, as specified.
+print(comp(v1, v2)) # None (returned on equal), as specified.
+
+print(comp(v1, v2, "arm64_v8a")) # You can "prefer" build metadata. Returns v1 in this case.
+```
+
+> [!important]
+> In the case of the two versions being equal, and neither having the preferred
+> build metadata, `None` is still returned.
+> 
+> Older versions with the preferred build metadata are still overshadowed by later versions.
+
 ## Installation
 In general, you can just use `pip`, pointed at this repository, and it'll install `semverlib`:
 ```bash
@@ -88,7 +118,11 @@ to work in yourself with `venv`, `uv`, etc...
 
 > [!note]
 > If you're using an IDE, a virtual environment is probably already set up for your project.\
-> In that case, you can just use pip from its terminal, instead of manually setting one up yourself.
+> In that case, you can just use pip from its terminal, or the builtin package manager, instead
+> of manually setting one up yourself.
+> 
+> For instance, in PyCharm, you can click "Advanced Package Install" under "Python Packages" and
+> input the above git+URL.
 
 If you want to manually set one up:
 ```bash
