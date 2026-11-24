@@ -1,13 +1,19 @@
 """
-lightweight module for working with Semantic Versioning (ver. 2.0.0)\n
+lightweight module for working with Semantic Versioning (ver. 2.0.0)
+
 See the SemanticVersion class for more information.
+
+For the specification: https://semver.org
 """
 
 import re
 from typing import overload, TypeAlias
 
-__version__ = "2.1.0"
-__all__ = ["SemanticVersion", "InvalidSemVerString", "comp", "latest", "version"]
+__version__ = "2.1.1"
+__all__ = [
+    "SemanticVersion", "InvalidSemVerString", "comp",
+    "latest", "version", "first", "first_dev"
+]
 
 
 class InvalidSemVerString(Exception):
@@ -106,9 +112,6 @@ class SemanticVersion:
                 "https://semver.org/#spec-item-2"
             )
         self._major, self._minor, self._patch = map(int, is_valid_semver.groups())
-
-        if (self._major, self._minor, self._patch) == (0, 0, 0):
-            self._minor = 1
 
         is_prerelease_re = re.compile(r"-[a-zA-Z0-9._-]*")
         has_metadata_re = re.compile(r"\+[a-zA-Z0-9._-]*")
@@ -323,5 +326,21 @@ def latest(*v: AcceptableSemVer) -> list[SemanticVersion]:
         r.append(ver)
     return r
 
+
+# From https://semver.org/#spec-item-4
+#
+# Major version zero (0.y.z) is for initial development. Anything MAY change at any time. The public API
+# SHOULD NOT be considered stable.
+#
+# and https://semver.org/#how-should-i-deal-with-revisions-in-the-0yz-initial-development-phase
+#
+# The simplest thing to do is start your initial development release at 0.1.0 and then increment the minor version
+# for each subsequent release.
+first_dev = SemanticVersion("0.1.0")
+
+# From https://semver.org/#spec-item-5
+# Version 1.0.0 defines the public API. The way in which the version number is incremented after this release
+# is dependent on this public API and how it changes.d
+first = SemanticVersion("1.0.0")
 
 version = SemanticVersion(__version__)

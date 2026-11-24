@@ -21,13 +21,13 @@ def parse_args(args: list[str]) -> tuple[dict[str, bool], dict[str, str|int|floa
     for arg in args:
         if arg.startswith("--"):
             kwarg = arg.removeprefix("--")
-            name = kwarg.rsplit("=", 1)[0]
+            name = kwarg.split("=", 1)[0]
 
             if not name:
                 raise ArgumentParserError("Found unnamed kwarg.")
 
             if "=" in kwarg:
-                k, raw_v = kwarg.rsplit("=", 1)
+                k, raw_v = kwarg.split("=", 1)
                 if not raw_v.strip():
                     raise ArgumentParserError(f"Found kwarg '{k}' with no value.")
 
@@ -38,13 +38,7 @@ def parse_args(args: list[str]) -> tuple[dict[str, bool], dict[str, str|int|floa
                 elif v in ("none", "nil", "null"):
                     parsed_val = None
                 else:
-                    try:
-                        parsed_val = int(raw_v, 0)
-                    except ValueError:
-                        try:
-                            parsed_val = float(raw_v)
-                        except ValueError:
-                            parsed_val = raw_v
+                    parsed_val = raw_v
 
                 kwargs[k] = parsed_val
             else:
@@ -68,13 +62,22 @@ def parse_args(args: list[str]) -> tuple[dict[str, bool], dict[str, str|int|floa
 ALIASES = {
     "h": "help",
     "H": "help",
+    "help": "help",
+    "mode": "mode",
+    "flag": "flag",
 
     "S": "check",
+    "check": "check",
     "C": "compare",
+    "compare": "compare",
+    "prefer": "prefer",
     "D": "decompose",
+    "decompose": "decompose",
 
     "j": "json",
+    "json": "json",
     "q": "quiet",
+    "quiet": "quiet",
 }
 
 HELP = {
@@ -85,13 +88,13 @@ HELP = {
         "FLAGS:",
         " --mode=<str> :: print help for a mode, or filter to this mode",
         " --flag=<str> :: print help for a flag",
-        " * does not accept global flags!",
+        " + global flags",
         "",
         "usage: --help [<flags>]"
     ],
     ("mode", "check"): [
         "-S (--check)",
-        "print help text",
+        "check whether every version is valid",
         "",
         "FLAGS:",
         " no specific flags",
@@ -153,52 +156,94 @@ HELP = {
     ]
 }
 
+def is_valid_kw(kw: str) -> bool:
+    for v in ALIASES.values():
+        if kw == v: return True
+    return False
+
 if __name__ == "__main__":
     mods, kwargs, versions = parse_args(sys.argv[1:])
     for mod in mods:
-        if ALIASES[mod]:
-            kwargs[ALIASES[mod]] = True
+        if ALIASES.get(mod, None) is not None:
+            kwargs[ALIASES.get(mod, "")] = True
+        else:
+            warn(f"Unknown mod '-{mod}'")
+            sys.exit(1)
+    for kw in kwargs:
+        if not is_valid_kw(kw):
+            warn(f"Unknown kwarg '--{kw}'")
+            sys.exit(1)
 
     json_mode = kwargs.get("json", None)
     quiet_mode = kwargs.get("quiet", None)
 
     if kwargs.get("help", None):
         if kwargs.get("flag", None) is not None:
-            t_mode = str(kwargs.get("mode")) if kwargs.get("mode") is not None else "global"
+            if not isinstance(kwargs.get("mode", None), (type(None), str)):
+                if not quiet_mode:
+                    t = kwargs.get("mode", None).__class__.__name__
+                    warn(f"--help expects flag 'mode' of type 'str', not '{t}'")
+                sys.exit(1)
+
+            t_mode = str(kwargs.get("mode")) if kwargs.get("mode", None) is not None else "global"
             if ALIASES.get(t_mode, None): t_mode = ALIASES[t_mode]
+
+            if not isinstance(kwargs.get("flag", None), (type(None), str)):
+                if not quiet_mode:
+                    t = kwargs.get("flag", None).__class__.__name__
+                    warn(f"--help expects flag 'flag' of type 'str', not '{t}'")
+                sys.exit(1)
 
             t_flag = str(kwargs.get("flag"))
             if ALIASES.get(t_flag, None): t_flag = ALIASES[t_flag]
 
             if HELP.get(("flag", t_mode, t_flag), None) is None:
-                warn(f"flag {t_flag} not found!")
+                if not quiet_mode:
+                    warn(f"flag '--{t_flag}' not found in context '{t_mode}'!")
                 sys.exit(1)
+
+            if json_mode:
+                print(json.dumps({ "content": HELP[("flag", t_mode, t_flag)] }, indent=2))
+                sys.exit(0)
 
             for line in HELP[("flag", t_mode, t_flag)]:
                 if not line.strip():
                     print()
                     continue
                 info(line)
-
             sys.exit(0)
         elif kwargs.get("mode", None) is not None:
+            if not isinstance(kwargs.get("mode", None), (type(None), str)):
+                if not quiet_mode:
+                    t = kwargs.get("mode", None).__class__.__name__
+                    warn(f"--help expects flag 'mode' of type 'str', not '{t}'")
+                sys.exit(1)
+
             t_mode = str(kwargs.get("mode"))
             if ALIASES.get(t_mode, None): t_mode = ALIASES[t_mode]
 
             if HELP.get(("mode", t_mode), None) is None:
-                warn(f"mode {t_mode} not found!")
+                if not quiet_mode:
+                    warn(f"mode '--{t_mode}' not found!")
                 sys.exit(1)
+
+            if json_mode:
+                print(json.dumps({ "content": HELP[("mode", t_mode)] }, indent=2))
+                sys.exit(0)
 
             for line in HELP[("mode", t_mode)]:
                 if not line.strip():
                     print()
                     continue
                 info(line)
+            sys.exit(0)
+
+        if json_mode:
 
             sys.exit(0)
 
         info("semverlib cli, made with ♥︎ by quantum")
-        info("usage: python semverlib [[(-Syu...)|(--MODE)] <V...> [<--flags>]]")
+        info("usage: python semverlib [[(-Sjq...)|(--MODE)] <V...> [<--flags>]]")
         print()
         info("MODES:")
         info(" -H (--help) [default] :: print help text")
@@ -243,7 +288,7 @@ if __name__ == "__main__":
                 })
 
             print(json.dumps(result, indent=2))
-            sys.exit(0)
+            sys.exit(0 if not invalid else 1)
 
         if not quiet_mode:
             info(f"{len(valid)}/{len(versions)} versions are valid:")
@@ -287,12 +332,17 @@ if __name__ == "__main__":
 
             if m is None:
                 info(f"{a.fullname} == {b.fullname}")
-            if m == a:
+            elif m is a:
                 info(f"{a.fullname} > {b.fullname}")
-            if m == b:
+            elif m is b:
                 info(f"{b.fullname} > {a.fullname}")
             sys.exit(0)
         else:
+            if kwargs.get("prefer", None) and not quiet_mode:
+                warn("--prefer is not supported with 3+ versions!")
+                sys.exit(1)
+            candidates.sort(reverse=True)
+
             if json_mode:
                 print(json.dumps({
                     "candidates": [v.fullname for v in candidates],
@@ -342,6 +392,7 @@ if __name__ == "__main__":
                 info(f"- prerelease tag: {v.prerelease}")
             if v.has_build_metadata:
                 info(f"- build metadata: {v.build_metadata}")
+            sys.exit(0)
         else:
             result = []
 
@@ -367,17 +418,20 @@ if __name__ == "__main__":
                         info(f"- prerelease tag: {v.prerelease}")
                     if v.has_build_metadata:
                         info(f"- build metadata: {v.build_metadata}")
-                    if i != len(versions) - 1: info(" ----------- ")
 
             if json_mode:
                 print(json.dumps(result, indent=2))
+            sys.exit(0)
     elif versions:
+        failed = False
+        for v in versions:
             try:
-                v = SemanticVersion(versions[0])
+                v = SemanticVersion(v)
             except InvalidSemVerString as err:
                 if not quiet_mode:
                     warn(err.reason)
-                sys.exit(1)
+                failed = True
+                continue
 
             if json_mode:
                 print(json.dumps({
@@ -391,14 +445,13 @@ if __name__ == "__main__":
                     "prerelease": v.prerelease,
                     "build_meta": v.build_metadata
                 }, indent=2))
-                sys.exit(0)
+            else:
+                print(v)
+        sys.exit(0 if not failed else 1)
 
-            print(v)
-            sys.exit(0)
-    else:
-        info(f"semverlib, ver. {version}, loaded!")
-        info("made with ︎︎︎︎♥ by quantum!")
-        print()
-        info("semverlib is freely available on github, under the MIT license")
-        info("for issues: https://github.com/QuantumsSources/semverlib")
-        sys.exit(0)
+    info(f"semverlib, ver. {version}, loaded!")
+    info("made with ︎︎︎︎♥ by quantum!")
+    print()
+    info("semverlib is freely available on github, under the MIT license")
+    info("for issues: https://github.com/QuantumsSources/semverlib")
+    sys.exit(0)
